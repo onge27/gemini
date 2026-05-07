@@ -17,7 +17,7 @@ from flask import Flask, render_template, request, jsonify
 import anthropic
 import os
 from dotenv import load_dotenv
-import google.genai as genai
+from google import genai
 
 load_dotenv()
 
