@@ -69,8 +69,7 @@ def generate_questions(topic):
     return response.text
 
 
-# test run
-print(generate_questions("Python basics"))
+ 
 
  
 
