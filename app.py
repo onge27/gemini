@@ -6,6 +6,7 @@ import sqlite3
 from functools import wraps
 from datetime import datetime
 
+
 import bcrypt
 import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
@@ -16,6 +17,7 @@ from flask import Flask, render_template, request, jsonify
 import anthropic
 import os
 from dotenv import load_dotenv
+import google.genai as genai
 
 load_dotenv()
 
