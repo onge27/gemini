@@ -9,3 +9,4 @@ anthropic
 clerk-backend-api
 psycopg2-binary
 google-genai
+google-generativeai
