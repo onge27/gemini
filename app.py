@@ -6,80 +6,27 @@ import sqlite3
 from functools import wraps
 from datetime import datetime
 
-
 import bcrypt
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, jsonify
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-
-from flask import Flask, render_template, request, jsonify
 import anthropic
-import os
-from dotenv import load_dotenv
-from google import genai
 
-load_dotenv()
-
- 
-import os
-from dotenv import load_dotenv
+# ─── Gemini Setup ─────────────────────────────────────────────────────────────
 import google.generativeai as genai
 
-# Load environment variables
 load_dotenv()
 
-# Get API key
-API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Check if naa
-if not API_KEY:
-    raise ValueError("Missing GEMINI_API_KEY in .env file")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+else:
+    gemini_model = None
+    print("WARNING: GEMINI_API_KEY not set. AI question generation will be disabled.")
 
-# Configure Gemini
-genai.configure(api_key=API_KEY)
-
-# Example model
-model = genai.GenerativeModel("Gemini 2.5 Flash")
- 
-
- 
-
-load_dotenv()
-
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-
-def generate_questions(topic):
-    prompt = f"""
-    Generate 5 multiple-choice questions about {topic}.
-    Include answers at the end.
-
-    Format:
-    Q1:
-    A.
-    B.
-    C.
-    D.
-    Answer:
-    """
-
-    response = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents=prompt
-    )
-
-    return response.text
-
-
- 
-
- 
-
- 
-
- 
-
-    
 
 # ─── Database ────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('NEON_DATABASE_URL')
@@ -119,6 +66,7 @@ def db_lastid(cur):
         return row['id'] if row else None
     return cur.lastrowid
 
+
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'wmsu-oes-secure-key-2026')
@@ -128,6 +76,7 @@ app.config['CLERK_PUBLISHABLE_KEY'] = os.getenv('CLERK_PUBLISHABLE_KEY', '')
 app.config['CLERK_SECRET_KEY'] = os.getenv('CLERK_SECRET_KEY', '')
 app.config['YEAR'] = 2026
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
 
 # ─── DB Init ─────────────────────────────────────────────────────────────────
 def init_db():
@@ -352,8 +301,6 @@ def check_password(stored, provided):
 
 # ─── Routes: Public ──────────────────────────────────────────────────────────
 
- 
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     conn = get_db()
@@ -423,6 +370,7 @@ def register():
 
     return render_template('register.html', subjects=subjects)
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -448,15 +396,17 @@ def login():
             flash(f'Welcome back, {user["name"]}!', 'success')
             return redirect(url_for('dashboard'))
         else:
-            flash('Incorrect email .', 'danger')
+            flash('Incorrect email or password.', 'danger')
 
     return render_template('login.html')
+
 
 @app.route('/logout')
 def logout():
     session.clear()
     flash('You have been signed out.', 'success')
     return redirect(url_for('login'))
+
 
 # ─── Google OAuth Callback (Clerk) ───────────────────────────────────────────
 @app.route('/auth/google/callback')
@@ -517,7 +467,9 @@ def google_auth_callback():
         flash('Google sign-in failed. Please try again.', 'danger')
         return redirect(url_for('login'))
 
+
 # ─── Dashboard ───────────────────────────────────────────────────────────────
+@app.route('/')
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -556,6 +508,7 @@ def teacher_dashboard():
                            pending_verifications=pending_verifications,
                            pending_requests=pending_requests)
 
+
 @app.route('/teacher/create_subject', methods=['GET', 'POST'])
 @login_required
 @role_required('teacher')
@@ -572,6 +525,7 @@ def create_subject():
             return redirect(url_for('teacher_dashboard'))
         flash('Subject name is required.', 'danger')
     return render_template('create_subject.html')
+
 
 @app.route('/teacher/create_exam', methods=['GET', 'POST'])
 @login_required
@@ -606,6 +560,7 @@ def create_exam():
 
     return render_template('create_exam.html', subjects=subjects)
 
+
 @app.route('/teacher/add_questions/<int:exam_id>', methods=['GET', 'POST'])
 @login_required
 @role_required('teacher')
@@ -636,6 +591,7 @@ def add_questions(exam_id):
     conn.close()
     return render_template('add_questions.html', exam=exam, questions=questions)
 
+
 @app.route('/teacher/delete_question/<int:question_id>', methods=['POST'])
 @login_required
 @role_required('teacher')
@@ -648,6 +604,7 @@ def delete_question(question_id):
     conn.close()
     flash('Question deleted.', 'success')
     return redirect(url_for('add_questions', exam_id=exam_id) if exam_id else url_for('teacher_dashboard'))
+
 
 @app.route('/teacher/auto_generate_questions/<int:exam_id>', methods=['GET', 'POST'])
 @login_required
@@ -738,6 +695,7 @@ Separate each question block with a single blank line."""
 
     return render_template('auto_generate.html', exam=exam)
 
+
 @app.route('/teacher/upload_students', methods=['GET', 'POST'])
 @login_required
 @role_required('teacher')
@@ -745,6 +703,7 @@ def upload_students():
     conn = get_db()
     subjects = db_execute(conn, "SELECT * FROM subjects WHERE teacher_id = ?", (session['user_id'],)).fetchall()
     conn.close()
+
     if request.method == 'POST':
         subject_id = request.form['subject_id']
         if 'file' not in request.files:
@@ -791,9 +750,6 @@ def upload_students():
                 flash(f'Successfully imported {count} student(s).', 'success')
                 return redirect(url_for('view_allowed_students', subject_id=subject_id))
             except Exception as e:
-                # ✅ Redirect to view students after successful upload
-                return redirect(url_for('view_allowed_students', subject_id=subject_id))
-            except Exception as e:
                 flash(f'Error reading file: {str(e)}', 'danger')
             finally:
                 if os.path.exists(filepath):
@@ -801,7 +757,10 @@ def upload_students():
         else:
             flash('Invalid file type. Please upload a CSV or Excel (.xlsx) file.', 'danger')
         return redirect(url_for('upload_students'))
+
     return render_template('upload_students.html', subjects=subjects)
+
+
 @app.route('/teacher/view_allowed_students')
 @login_required
 @role_required('teacher')
@@ -815,6 +774,7 @@ def view_allowed_students():
     conn.close()
     return render_template('view_allowed_students.html', subjects=subjects, students=students, selected_subject=selected_subject)
 
+
 @app.route('/teacher/verify_student/<int:user_id>')
 @login_required
 @role_required('teacher')
@@ -825,6 +785,7 @@ def verify_student(user_id):
     conn.close()
     flash('Student verified successfully.', 'success')
     return redirect(url_for('teacher_dashboard'))
+
 
 @app.route('/teacher/view_results')
 @login_required
@@ -842,6 +803,7 @@ def view_results():
             (exam_id,)).fetchall()
     conn.close()
     return render_template('view_results.html', exams=exams, results=results, selected_exam=exam_id)
+
 
 # ─── Teacher: Exam Access Requests ───────────────────────────────────────────
 @app.route('/teacher/exam_requests')
@@ -873,6 +835,7 @@ def exam_requests():
     conn.close()
     return render_template('exam_requests.html', requests=all_requests, status_filter=status_filter)
 
+
 @app.route('/teacher/approve_request/<int:req_id>', methods=['POST'])
 @login_required
 @role_required('teacher')
@@ -884,6 +847,7 @@ def approve_request(req_id):
     flash('Request approved — student can now take the exam.', 'success')
     return redirect(request.referrer or url_for('exam_requests'))
 
+
 @app.route('/teacher/reject_request/<int:req_id>', methods=['POST'])
 @login_required
 @role_required('teacher')
@@ -894,6 +858,7 @@ def reject_request(req_id):
     conn.close()
     flash('Request rejected.', 'success')
     return redirect(request.referrer or url_for('exam_requests'))
+
 
 # ─── Teacher: Exam Access Keys ────────────────────────────────────────────────
 @app.route('/teacher/exam_keys/<int:exam_id>')
@@ -912,6 +877,7 @@ def exam_keys(exam_id):
     conn.close()
     return render_template('exam_keys.html', exam=exam, keys=keys)
 
+
 @app.route('/teacher/generate_exam_key/<int:exam_id>', methods=['POST'])
 @login_required
 @role_required('teacher')
@@ -926,6 +892,7 @@ def generate_exam_key(exam_id):
         flash('Could not generate key. Please try again.', 'danger')
     conn.close()
     return redirect(url_for('exam_keys', exam_id=exam_id))
+
 
 @app.route('/teacher/deactivate_key/<int:key_id>', methods=['POST'])
 @login_required
@@ -982,6 +949,7 @@ def student_dashboard():
     conn.close()
     return render_template('student_dashboard.html', exams=all_exams)
 
+
 @app.route('/student/request_exam_access/<int:exam_id>', methods=['POST'])
 @login_required
 @role_required('student')
@@ -1006,6 +974,7 @@ def request_exam_access(exam_id):
         flash('Access request submitted! Please wait for your teacher to approve.', 'success')
     conn.close()
     return redirect(url_for('student_dashboard'))
+
 
 @app.route('/student/use_exam_key', methods=['POST'])
 @login_required
@@ -1049,6 +1018,7 @@ def use_exam_key():
     conn.close()
     return redirect(url_for('student_dashboard'))
 
+
 @app.route('/student/take_exam/<int:exam_id>')
 @login_required
 @role_required('student')
@@ -1064,7 +1034,6 @@ def take_exam(exam_id):
         conn.close()
         return redirect(url_for('student_dashboard'))
 
-    # Must have approved access request
     access = db_execute(conn,
         "SELECT id FROM exam_access_requests WHERE student_id = ? AND exam_id = ? AND status = 'approved'",
         (student_id, exam_id)).fetchone()
@@ -1088,6 +1057,7 @@ def take_exam(exam_id):
         return redirect(url_for('student_dashboard'))
 
     return render_template('take_exam.html', exam=exam, questions=questions)
+
 
 @app.route('/student/submit_exam/<int:exam_id>', methods=['POST'])
 @login_required
@@ -1150,6 +1120,7 @@ def admin_dashboard():
         total_exams=get_count(total_exams),
         total_results=get_count(total_results))
 
+
 @app.route('/admin/manage_teachers')
 @login_required
 @admin_required
@@ -1158,6 +1129,7 @@ def manage_teachers():
     teachers = db_execute(conn, "SELECT * FROM users WHERE role = 'teacher'").fetchall()
     conn.close()
     return render_template('manage_teachers.html', teachers=teachers)
+
 
 @app.route('/admin/delete_teacher/<int:user_id>')
 @login_required
@@ -1170,20 +1142,18 @@ def delete_teacher(user_id):
     flash('Teacher removed successfully.', 'success')
     return redirect(url_for('manage_teachers'))
 
+
 @app.route('/admin/create_subject', methods=['GET', 'POST'])
 @login_required
 @admin_required
 def admin_create_subject():
     if request.method == 'POST':
         subject_name = request.form['subject_name'].strip()
-
         if not subject_name:
             flash('Subject name is required.', 'danger')
             return render_template('admin_create_subject.html')
-
         try:
             conn = get_db()
-            # teacher_id = 0 or NULL — no teacher assigned yet
             db_execute(conn,
                 "INSERT INTO subjects (subject_name, teacher_id) VALUES (?, ?)",
                 (subject_name, 0))
@@ -1193,8 +1163,8 @@ def admin_create_subject():
             return redirect(url_for('view_all_subjects'))
         except Exception as e:
             flash(f'Error: {str(e)}', 'danger')
-
     return render_template('admin_create_subject.html')
+
 
 @app.route('/admin/view_all_subjects')
 @login_required
@@ -1206,6 +1176,7 @@ def view_all_subjects():
     ).fetchall()
     conn.close()
     return render_template('view_all_subjects.html', subjects=subjects)
+
 
 @app.route('/admin/delete_subject/<int:subject_id>')
 @login_required
@@ -1237,6 +1208,7 @@ def delete_subject(subject_id):
         conn.close()
 
     return redirect(url_for('view_all_subjects'))
+
 
 @app.route('/admin/view_all_students')
 @login_required
